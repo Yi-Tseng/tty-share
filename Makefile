@@ -45,3 +45,9 @@ test:
 	@go test github.com/yi-Tseng/tty-share/testing -v
 
 .PHONY: frontend
+
+image:
+	docker build -t trtc008056/tty-server .
+
+push-image:
+	docker push trtc008056/tty-server
