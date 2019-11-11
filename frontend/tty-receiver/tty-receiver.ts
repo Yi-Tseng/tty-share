@@ -28,8 +28,8 @@ class TTYReceiver {
         this.xterminal.open(container);
         var ttyReceiver = this;
         this.xterminal.onData(function (data) {
-            // Breaks data into small peices which smaller than 254 bytes
-            let dataList = ttyReceiver.chunkString(data, 254)
+            // Breaks data into small peices which smaller than 128 bytes
+            let dataList = ttyReceiver.chunkString(data, 128)
             for (let dataToEncode of dataList) {
                 let writeMessage = {
                     Type: "Write",
