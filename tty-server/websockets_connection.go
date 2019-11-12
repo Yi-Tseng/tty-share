@@ -1,12 +1,14 @@
 package main
 
 import (
+	"io"
 	"github.com/gorilla/websocket"
 )
 
 type WSConnection struct {
-	connection *websocket.Conn
-	address    string
+	connection    *websocket.Conn
+	address       string
+	currentReader io.Reader
 }
 
 func newWSConnection(conn *websocket.Conn) *WSConnection {
@@ -35,9 +37,18 @@ func (handle *WSConnection) Address() string {
 }
 
 func (handle *WSConnection) Read(data []byte) (int, error) {
-	_, r, err := handle.connection.NextReader()
-	if err != nil {
-		return 0, err
+	if handle.currentReader == nil {
+		_, r, err := handle.connection.NextReader()
+		if err != nil {
+			return 0, err
+		}
+		handle.currentReader = r
 	}
-	return r.Read(data)
+
+	i, err := handle.currentReader.Read(data)
+	if i == 0 && err == io.EOF {
+		handle.currentReader = nil
+		return i, nil
+	}
+	return i, err
 }
