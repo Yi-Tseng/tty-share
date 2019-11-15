@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"html/template"
+	"math/rand"
 	"mime"
 	"net/http"
 	"os"
@@ -90,6 +92,16 @@ func (server *TTYServer) serveContent(w http.ResponseWriter, r *http.Request, na
 	}
 }
 
+func generateNewSessionID() string {
+	binID := make([]byte, 16)
+	_, err := rand.Read(binID)
+
+	if err != nil {
+		panic(err)
+	}
+	return base64.URLEncoding.EncodeToString([]byte(binID))
+}
+
 // NewTTYServer creates a new instance
 func NewTTYServer(config TTYServerConfig) (server *TTYServer) {
 	server = &TTYServer{
@@ -106,8 +118,9 @@ func NewTTYServer(config TTYServerConfig) (server *TTYServer) {
 		})))
 
 	routesHandler.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Default session
-		http.Redirect(w, r, "/s/1", http.StatusMovedPermanently)
+		// Generate new session
+		sessionID := generateNewSessionID()
+		http.Redirect(w, r, "/s/"+sessionID, http.StatusFound)
 	})
 	routesHandler.HandleFunc("/s/{sessionID}", func(w http.ResponseWriter, r *http.Request) {
 		server.handleSession(w, r)
@@ -157,6 +170,15 @@ func (server *TTYServer) handleWebsocket(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	session := server.getSession(sessionID)
+
+	// No valid session with this ID, create a new one and start it
+	if session == nil {
+		log.Errorf("Invalid session ID: %s", sessionID)
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
 	// Upgrade to Websocket mode.
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -169,21 +191,6 @@ func (server *TTYServer) handleWebsocket(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	session := server.getSession(sessionID)
-
-	// No valid session with this ID, create a new one and start it
-	if session == nil {
-		session = server.createNewSession(sessionID)
-		go func() {
-			server.addSession(sessionID, session)
-			session.Wait()
-			log.Infof("Session %s stopped", sessionID)
-
-			server.removeSession(session)
-		}()
-	}
-
-	// TODO: attach the ptyMaster
 	session.HandleReceiver(newWSConnection(conn))
 }
 
@@ -201,10 +208,19 @@ func (server *TTYServer) handleSession(w http.ResponseWriter, r *http.Request) {
 		go func() {
 			server.addSession(sessionID, session)
 			err := session.Wait()
-			log.Infof("Session %s stopped with error: %s", sessionID, err)
+			if err != nil {
+				log.Infof("Session %s stopped with error: %s", sessionID, err)
+			} else {
+				log.Infof("Session %s stopped", sessionID)
+			}
 
 			server.removeSession(session)
 		}()
+	} else {
+		// Session already exists, we only allow one web socket connect per session
+		// rediret to index path and reassign new session ID
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
 	}
 
 	var t *template.Template

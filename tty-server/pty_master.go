@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -19,17 +18,15 @@ import (
 // This defines a PTY Master whih will encapsulate the command we want to run, and provide simple
 // access to the command, to write and read IO, but also to control the window size.
 type ptyMaster struct {
-	sessionID              string
-	mainRWLock             sync.RWMutex
-	ptyFile                *os.File
-	command                *exec.Cmd
-	ttyReceiverConnections []*ttyCommon.TTYProtocolConn
+	sessionID    string
+	ptyFile      *os.File
+	command      *exec.Cmd
+	rcvProtoConn *ttyCommon.TTYProtocolConn
 }
 
 func ptyMasterNew(sessionID string) *ptyMaster {
 	return &ptyMaster{
-		sessionID:              sessionID,
-		ttyReceiverConnections: make([]*ttyCommon.TTYProtocolConn, 10),
+		sessionID: sessionID,
 	}
 }
 
@@ -94,6 +91,9 @@ func (pty *ptyMaster) Refresh() {
 
 func (pty *ptyMaster) Wait() (err error) {
 	err = pty.command.Wait()
+	if pty.rcvProtoConn != nil {
+		err = pty.rcvProtoConn.Close()
+	}
 	return
 }
 
@@ -101,36 +101,33 @@ func (pty *ptyMaster) Stop() (err error) {
 	signal.Ignore(syscall.SIGWINCH)
 
 	pty.command.Process.Signal(syscall.SIGTERM)
-	// TODO: Find a proper wai to close the running command. Perhaps have a timeout after which,
+	// TODO: Find a proper way to close the running command. Perhaps have a timeout after which,
 	// if the command hasn't reacted to SIGTERM, then send a SIGKILL
 	// (bash for example doesn't finish if only a SIGTERM has been sent)
 	pty.command.Process.Signal(syscall.SIGKILL)
-	pty.mainRWLock.Lock()
-	for _, conn := range pty.ttyReceiverConnections {
-		_ = conn.Close()
-	}
-	pty.mainRWLock.Unlock()
 	return
 }
 
 func (pty *ptyMaster) HandleReceiver(rawConn *WSConnection) {
-	rcvProtoConn := ttyCommon.NewTTYProtocolConn(rawConn)
+	if pty.rcvProtoConn != nil {
+		// Someone is using this session, reject this request.
+		rawConn.Close()
+		return
+	}
+	pty.rcvProtoConn = ttyCommon.NewTTYProtocolConn(rawConn)
 	log.Debugf("Got new TTYReceiver connection (%s). Serving it..", rawConn.Address())
-	pty.mainRWLock.Lock()
-	pty.ttyReceiverConnections = append(pty.ttyReceiverConnections, rcvProtoConn)
-	pty.mainRWLock.Unlock()
 
 	go func() {
-		_, err := io.Copy(rcvProtoConn, pty)
+		_, err := io.Copy(pty.rcvProtoConn, pty)
 		if err != nil {
-			log.Debug("Lost connection with the server.\n")
+			log.Debugf("Lost connection: %s\n", err.Error())
 		}
 	}()
 
 	pty.Refresh()
 
 	for {
-		msg, err := rcvProtoConn.ReadMessage()
+		msg, err := pty.rcvProtoConn.ReadMessage()
 
 		if err != nil {
 			log.Warnf("Finishing handling the TTYReceiver loop because: %s", err.Error())
@@ -151,6 +148,7 @@ func (pty *ptyMaster) HandleReceiver(rawConn *WSConnection) {
 		}
 	}
 
-	log.Debugf("Closing receiver connection")
-	rcvProtoConn.Close()
+	pty.rcvProtoConn.Close()
+	pty.rcvProtoConn = nil
+	pty.Stop()
 }
