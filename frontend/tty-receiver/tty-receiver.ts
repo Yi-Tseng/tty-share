@@ -13,6 +13,7 @@ class TTYReceiver {
     private containerElement: HTMLElement;
     private fitAddon: FitAddon;
     private connection: WebSocket;
+    private retry: boolean;
 
     constructor(wsAddress: string, container: HTMLDivElement) {
         this.xterminal = new Terminal({
@@ -22,6 +23,7 @@ class TTYReceiver {
             fontSize: 16,
             letterSpacing: 0,
         });
+        this.retry = true;
         this.fitAddon = new FitAddon();
         this.xterminal.loadAddon(this.fitAddon);
         this.containerElement = container;
@@ -64,18 +66,22 @@ class TTYReceiver {
             this.xterminal.blur();
             this.xterminal.setOption('cursorBlink', false);
             this.xterminal.write('Session closed\n\r');
-            this.xterminal.write('Reconnecting after 3 second...\n\r');
-            setTimeout(() => {
-                this.initWebSocket(wsAddress)
-            }, 3000);
+            if (ttyReceiver.retry) {
+                this.xterminal.write('Reconnecting after 3 second...\n\r');
+                setTimeout(() => {
+                    this.initWebSocket(wsAddress)
+                }, 3000);
+            }
         }
         this.connection.onmessage = (ev: MessageEvent) => {
             let message = JSON.parse(ev.data)
-            let msgData = base64.decode(message.Data)
-
             if (message.Type === "Write") {
+                let msgData = base64.decode(message.Data)
                 let writeMsg = JSON.parse(msgData)
                 this.xterminal.writeUtf8(base64.base64ToArrayBuffer(writeMsg.Data));
+            }
+            if (message.Type === "Terminate") {
+                ttyReceiver.retry = false;
             }
         }
     }

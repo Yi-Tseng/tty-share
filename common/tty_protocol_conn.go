@@ -47,6 +47,11 @@ func (protoConn *TTYProtocolConn) SetWinSize(cols, rows int) error {
 }
 
 func (protoConn *TTYProtocolConn) Close() error {
+	msgTerminate := MsgTTYTerminate{}
+	err := MarshalAndWriteMsg(protoConn.netConnection, msgTerminate)
+	if err != nil {
+		return err
+	}
 	return protoConn.netConnection.Close()
 }
 

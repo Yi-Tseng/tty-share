@@ -17,6 +17,7 @@ const (
 	MsgIDReceiverInitReply          = "ReceiverInitReply"
 	MsgIDWrite                      = "Write"
 	MsgIDWinSize                    = "WinSize"
+	MsgIDTerminate                  = "Terminate"
 )
 
 // Message used to encapsulate the rest of the bessages bellow
@@ -45,6 +46,9 @@ type MsgTTYReceiverInitRequest struct {
 }
 
 type MsgTTYReceiverInitReply struct {
+}
+
+type MsgTTYTerminate struct {
 }
 
 // These messages are not intended for the server, so they are just forwarded by it to the remote
@@ -123,6 +127,11 @@ func MarshalMsg(aMessage interface{}) (_ []byte, err error) {
 		if err != nil {
 			return
 		}
+		return json.Marshal(msg)
+	}
+
+	if _, ok := aMessage.(MsgTTYTerminate); ok {
+		msg.Type = MsgIDTerminate
 		return json.Marshal(msg)
 	}
 
