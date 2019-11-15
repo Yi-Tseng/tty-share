@@ -200,8 +200,8 @@ func (server *TTYServer) handleSession(w http.ResponseWriter, r *http.Request) {
 		session = server.createNewSession(sessionID)
 		go func() {
 			server.addSession(sessionID, session)
-			session.Wait()
-			log.Infof("Session %s stopped", sessionID)
+			err := session.Wait()
+			log.Infof("Session %s stopped with error: %s", sessionID, err)
 
 			server.removeSession(session)
 		}()

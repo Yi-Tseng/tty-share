@@ -27,17 +27,13 @@ class TTYReceiver {
         this.containerElement = container;
         this.xterminal.open(container);
         var ttyReceiver = this;
-        this.xterminal.onData(function (data) {
-            // Breaks data into small peices which smaller than 128 bytes
-            let dataList = ttyReceiver.chunkString(data, 128)
-            for (let dataToEncode of dataList) {
-                let writeMessage = {
-                    Type: "Write",
-                    Data: base64.encode(JSON.stringify({ Size: dataToEncode.length, Data: base64.encode(dataToEncode)})),
-                }
-                let dataToSend = JSON.stringify(writeMessage)
-                ttyReceiver.connection.send(dataToSend);
+        this.xterminal.onData(function (data: string) {
+            let writeMessage = {
+                Type: "Write",
+                Data: base64.encode(JSON.stringify({ Size: data.length, Data: base64.encode(data)})),
             }
+            let dataToSend = JSON.stringify(writeMessage);
+            ttyReceiver.connection.send(dataToSend);
         });
 
         this.xterminal.onResize((e) => {
@@ -53,16 +49,6 @@ class TTYReceiver {
         }
         this.xterminal.write("Connecting to the server...\n\r");
         this.initWebSocket(wsAddress)
-    }
-
-    private chunkString(str: string, size: number): Array<string> {
-        var numChunks = Math.ceil(str.length / size),
-            chunks = new Array(numChunks);
-
-        for(var i = 0, o = 0; i < numChunks; ++i, o += size) {
-            chunks[i] = str.substr(o, size);
-        }
-        return chunks;
     }
 
     private initWebSocket(wsAddress: string) {
